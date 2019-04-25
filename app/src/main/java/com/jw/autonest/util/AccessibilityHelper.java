@@ -132,4 +132,13 @@ public final class AccessibilityHelper {
             performClick(nodeInfo.getParent());
         }
     }
+
+
+    /** 滑动*/
+    public static void performScroll(AccessibilityNodeInfo nodeInfo) {
+        if(nodeInfo == null) {
+            return;
+        }
+        nodeInfo.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+    }
 }

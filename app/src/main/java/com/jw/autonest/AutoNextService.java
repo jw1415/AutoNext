@@ -3,13 +3,16 @@ package com.jw.autonest;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Handler;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
 
 import com.jw.autonest.util.AccessibilityHelper;
+import com.jw.autonest.util.AnswerUtil;
 import com.jw.autonest.util.SpfUtil;
 
 import java.util.Random;
@@ -22,7 +25,6 @@ public class AutoNextService extends AccessibilityService {
     private long nextTime;
     private String mAnswer;
     private boolean mIsRefresh;
-    private AccessibilityNodeInfo mPracticeNode;
 
     private String activityName;
 
@@ -55,31 +57,60 @@ public class AutoNextService extends AccessibilityService {
             activityName = aName;
         }
 
-        if("com.bjta.media.view.VideoAdsViewActivity".equals(event.getClassName())){
-            mPracticeNode = null;
-        }
 
-        if("com.bjta.media.view.mpexam.MdPlayerPracticeActivity".equals(event.getClassName())){
+
+        if(isMdPlayerPracticeActivity()){
             if(SpfUtil.getInstance(this).getData("auto")) {
-                mPracticeNode = nodeInfo;
                 mHandler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
                         boolean isSubmit = autoSubmit(nodeInfo);
-                        if (nodeInfo == mPracticeNode) {
+                        if (isMdPlayerPracticeActivity()) {
                             if (!isSubmit) {
-                                mHandler.removeCallbacks(this);
-                                mHandler.postDelayed(this, nextTime - System.currentTimeMillis() + 1000);
+                                postTask(this,0);
                             }
                         }
                     }
                 }, 1000);
             }
-        }else{
+        }
+
+        if(isVideoAdsViewActivity()){
             autoNext(nodeInfo);
         }
 
+        if(isVideoAdsViewActivity()){
+            autoNext(nodeInfo);
+        }
 
+        if(isExerciseActivity()){
+            autoExercise.run();
+        }
+
+    }
+
+    /**
+     * 视频答题页
+     * @return
+     */
+    private boolean isMdPlayerPracticeActivity(){
+        return "com.bjta.media.view.mpexam.MdPlayerPracticeActivity".equals(activityName);
+    }
+
+    /**
+     * 视频页
+     * @return
+     */
+    private boolean isVideoAdsViewActivity(){
+        return "com.bjta.media.view.VideoAdsViewActivity".equals(activityName);
+    }
+
+    /**
+     * 答题页
+     * @return
+     */
+    private boolean isExerciseActivity(){
+        return "com.bjta.exam.plugin.view.dlg.ExerciseActivity".equals(activityName);
     }
 
     @Override
@@ -106,7 +137,7 @@ public class AutoNextService extends AccessibilityService {
             if(nextNode != null && nextNode.isVisibleToUser() && (nextTime < System.currentTimeMillis())){
                 clickNode(nextNode,6,"next button");
             }
-            if(SpfUtil.getInstance(getApplicationContext()).getData("auto2")) {
+            if(isVideoAdsViewActivity() && SpfUtil.getInstance(getApplicationContext()).getData("auto2")) {
                 mHandler.removeCallbacks(this);
                 mHandler.postDelayed(this,3000);
             }
@@ -156,6 +187,96 @@ public class AutoNextService extends AccessibilityService {
         }
         return false;
     }
+
+
+    private Runnable  autoExercise = new Runnable() {
+        @RequiresApi(api = Build.VERSION_CODES.N)
+        @Override
+        public void run() {
+            AccessibilityNodeInfo nodeInfo = getRootInActiveWindow();
+            if(nodeInfo == null) {
+                Log.w(TAG, "rootWindow is null");
+                postTask(this,2000);
+                return;
+            }
+            if(!isExerciseActivity()){
+                return;
+            }
+
+            //先查看 答题正确或失败状态
+            AccessibilityNodeInfo answerNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/tv_sdanswer");
+            if(answerNode != null && answerNode.isVisibleToUser()){
+                String ans = answerNode.getText().toString();
+                if(ans.contains("正确")){
+                    //回答正确，等待自动滑屏
+                    Toast.makeText(AutoNextService.this,"right,wait for auto next",Toast.LENGTH_LONG).show();
+                    postTask(this,3000);
+                    return;
+                }else{
+                    AccessibilityNodeInfo pageNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/viewPager");
+                    if(pageNode != null){
+                        //错误状态，主动右滑
+                        Toast.makeText(AutoNextService.this,"faild,wait for pluggin next",Toast.LENGTH_LONG).show();
+//                        Rect rect = new Rect();
+//                        pageNode.getBoundsInScreen(rect);
+//                        GestureDescription.Builder builder = new GestureDescription.Builder();
+//                        Path path = new Path();
+////                        path.moveTo(rect.width()*6/6, rect.centerY());
+//                        path.moveTo(rect.width()*5/6,rect.centerY());
+//                        path.lineTo(rect.width()*4/6,rect.centerY());
+//                        path.lineTo(rect.width()*3/6,rect.centerY());
+//                        path.lineTo(rect.width()*2/6,rect.centerY());
+//                        path.lineTo(rect.width()*1/6,rect.centerY());
+//                        GestureDescription gestureDescription = builder
+//                                .addStroke(new GestureDescription.StrokeDescription(path, 100, 500))
+//                                .build();
+//                        dispatchGesture(gestureDescription, new AccessibilityService.GestureResultCallback() {
+//                            @Override
+//                            public void onCompleted(GestureDescription gestureDescription) {
+//                                super.onCompleted(gestureDescription);
+//                            }
+//
+//                            @Override
+//                            public void onCancelled(GestureDescription gestureDescription) {
+//                                super.onCancelled(gestureDescription);
+//                            }
+//                        }, mHandler);
+                        postTask(this,5000);
+                        return;
+                    }
+                }
+            }
+
+            //查找题号
+            try {
+                AccessibilityNodeInfo totalNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/tv_questionTotal");
+                int num = Integer.parseInt(totalNode.getText().toString().split("/")[0]);
+                //查找答案
+                String answer = AnswerUtil.getAnswer(num);
+                //点击选项
+                AccessibilityNodeInfo targetNode = AccessibilityHelper.findNodeInfosByText(nodeInfo, answer);
+                clickNode(targetNode.getParent(),5,"will click : "+answer +" for "+num);
+            } catch (Exception e) {
+                Toast.makeText(AutoNextService.this,"error:"+e.getMessage(),Toast.LENGTH_LONG).show();
+            }
+            postTask(this,0);
+        }
+    };
+
+
+    private void postTask(Runnable r,long delay){
+        mHandler.removeCallbacks(r);
+        if(delay > 0){
+            mHandler.postDelayed(r,delay);
+        }
+        long time = nextTime - System.currentTimeMillis() + 1000;
+        if(time <= 0){
+            mHandler.postDelayed(r,2000);
+        }else{
+            mHandler.postDelayed(r,time);
+        }
+    }
+
 
     private void clickNode(final AccessibilityNodeInfo targetNode,int maxTime, String desc){
         Random r = new Random();
