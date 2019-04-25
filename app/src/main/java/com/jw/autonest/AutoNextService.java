@@ -2,7 +2,11 @@ package com.jw.autonest;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.accessibilityservice.GestureDescription;
+import android.annotation.TargetApi;
 import android.content.Intent;
+import android.graphics.Path;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Handler;
 import android.support.annotation.RequiresApi;
@@ -15,7 +19,12 @@ import com.jw.autonest.util.AccessibilityHelper;
 import com.jw.autonest.util.AnswerUtil;
 import com.jw.autonest.util.SpfUtil;
 
+import java.io.DataOutputStream;
+import java.io.OutputStream;
 import java.util.Random;
+
+import static android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD;
+import static android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD;
 
 public class AutoNextService extends AccessibilityService {
 
@@ -27,6 +36,7 @@ public class AutoNextService extends AccessibilityService {
     private boolean mIsRefresh;
 
     private String activityName;
+    private boolean hasAnswer;
 
     @Override
     protected void onServiceConnected() {
@@ -190,6 +200,7 @@ public class AutoNextService extends AccessibilityService {
 
 
     private Runnable  autoExercise = new Runnable() {
+        @TargetApi(Build.VERSION_CODES.O)
         @RequiresApi(api = Build.VERSION_CODES.N)
         @Override
         public void run() {
@@ -206,43 +217,24 @@ public class AutoNextService extends AccessibilityService {
             //先查看 答题正确或失败状态
             AccessibilityNodeInfo answerNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/tv_sdanswer");
             if(answerNode != null && answerNode.isVisibleToUser()){
-                String ans = answerNode.getText().toString();
-                if(ans.contains("正确")){
-                    //回答正确，等待自动滑屏
-                    Toast.makeText(AutoNextService.this,"right,wait for auto next",Toast.LENGTH_LONG).show();
-                    postTask(this,3000);
-                    return;
-                }else{
-                    AccessibilityNodeInfo pageNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/viewPager");
-                    if(pageNode != null){
-                        //错误状态，主动右滑
-                        Toast.makeText(AutoNextService.this,"faild,wait for pluggin next",Toast.LENGTH_LONG).show();
-//                        Rect rect = new Rect();
-//                        pageNode.getBoundsInScreen(rect);
-//                        GestureDescription.Builder builder = new GestureDescription.Builder();
-//                        Path path = new Path();
-////                        path.moveTo(rect.width()*6/6, rect.centerY());
-//                        path.moveTo(rect.width()*5/6,rect.centerY());
-//                        path.lineTo(rect.width()*4/6,rect.centerY());
-//                        path.lineTo(rect.width()*3/6,rect.centerY());
-//                        path.lineTo(rect.width()*2/6,rect.centerY());
-//                        path.lineTo(rect.width()*1/6,rect.centerY());
-//                        GestureDescription gestureDescription = builder
-//                                .addStroke(new GestureDescription.StrokeDescription(path, 100, 500))
-//                                .build();
-//                        dispatchGesture(gestureDescription, new AccessibilityService.GestureResultCallback() {
-//                            @Override
-//                            public void onCompleted(GestureDescription gestureDescription) {
-//                                super.onCompleted(gestureDescription);
-//                            }
-//
-//                            @Override
-//                            public void onCancelled(GestureDescription gestureDescription) {
-//                                super.onCancelled(gestureDescription);
-//                            }
-//                        }, mHandler);
-                        postTask(this,5000);
+                String ans = answerNode.getText().toString().trim();
+                if(hasAnswer) {
+                    if (ans.contains("正确")) {
+                        //回答正确，等待自动滑屏
+                        Toast.makeText(AutoNextService.this, "right,wait for auto next", Toast.LENGTH_LONG).show();
+                        postTask(this, 3000);
                         return;
+                    } else {
+                        AccessibilityNodeInfo pageNode = AccessibilityHelper.findNodeInfosById(nodeInfo, "com.bjtongan.anjia365.llpx:id/viewPager");
+                        if (pageNode != null) {
+                            Toast.makeText(AutoNextService.this, "faild,wait for pluggin next", Toast.LENGTH_LONG).show();
+                            Rect rect = new Rect();
+                            pageNode.getBoundsInScreen(rect);
+                            perforGlobalSwipe(rect.width() * 5 / 6, rect.centerY(), rect.width() * 1 / 6, rect.centerY());
+                            hasAnswer = false;
+                            postTask(this, 6000);
+                            return;
+                        }
                     }
                 }
             }
@@ -256,12 +248,45 @@ public class AutoNextService extends AccessibilityService {
                 //点击选项
                 AccessibilityNodeInfo targetNode = AccessibilityHelper.findNodeInfosByText(nodeInfo, answer);
                 clickNode(targetNode.getParent(),5,"will click : "+answer +" for "+num);
+                hasAnswer = true;
             } catch (Exception e) {
                 Toast.makeText(AutoNextService.this,"error:"+e.getMessage(),Toast.LENGTH_LONG).show();
+                hasAnswer = true;
             }
             postTask(this,0);
         }
     };
+
+
+    /**
+     * 全局滑动操作
+     * @param x0
+     * @param y0
+     * @param x1
+     * @param y1
+     */
+    public static void perforGlobalSwipe(int x0, int y0, int x1, int y1) {
+        execShellCmd("input swipe " + x0 + " " + y0 + " " + x1 + " " + y1);
+    }
+
+
+    public static void execShellCmd(String cmd) {
+
+        try {
+            // 申请获取root权限，这一步很重要，不然会没有作用
+            Process process = Runtime.getRuntime().exec("su");
+            // 获取输出流
+            OutputStream outputStream = process.getOutputStream();
+            DataOutputStream dataOutputStream = new DataOutputStream(outputStream);
+            dataOutputStream.writeBytes(cmd);
+            dataOutputStream.flush();
+            dataOutputStream.close();
+            outputStream.close();
+//            process.waitFor();
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
 
 
     private void postTask(Runnable r,long delay){
