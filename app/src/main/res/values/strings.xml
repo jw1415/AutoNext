@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AutoNest</string>
+    <string name="accessibility_description">驾校app，自动下一页，刷学时</string>
+    <string name="desc">自动点击视频播放完后下一页按钮\n1.配置应用省电策略，防止系统杀掉进程\n2.在设置-无障碍服务-找到autonext-开启服务开关\n3.打开驾照应用，服务自动生效，当出现下一页按钮时，会提示3-10s后即将点击</string>
+</resources>
